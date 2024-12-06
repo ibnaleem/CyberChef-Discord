@@ -1,63 +1,90 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { 
+  SlashCommandBuilder, 
+  ActionRowBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+} = require('discord.js');
 
 module.exports = {
   data: new SlashCommandBuilder()
       .setName('from-hex')
-      .setDescription("Converts hexadecimal bytes into readable text, automatically detecting the delimiters.")
-      .addStringOption(option => 
-          option.setName('hexadecimal')
-              .setDescription("The hexadecimal you want to decode")
-              .setRequired(true)
-      ),
+      .setDescription("Converts hexadecimal bytes into readable text, automatically detecting the delimiters"),
+
+  hexadecimalField: new TextInputBuilder({
+      customId: 'hexadecimal-field',
+      label: "Hexadecimal String",
+      placeholder: 'Enter the hexadecimal string you want to decode',
+      style: TextInputStyle.Paragraph,
+      required: true,
+  }),
 
   async execute(interaction) {
-    const hexadecimal = interaction.options.getString('hexadecimal');
 
-    // Define the delimiters
-    const delimiters = [
-      { name: 'Space', value: ' ' },
-      { name: 'Percent', value: '%' },
-      { name: 'Comma', value: ',' },
-      { name: 'Semi-colon', value: ';' },
-      { name: '0x', value: '0x' },
-      { name: '0x with comma', value: '0x,' },
-      { name: '\\x', value: '\\x' }
-    ];
+      const firstActionRow = new ActionRowBuilder().addComponents(this.hexadecimalField);
+      const modal = new ModalBuilder({
+          customId: `hexadecimal-field-${interaction.user.id}`,
+          title: 'Hexadecimal Decoder',
+      });
 
-    // Check which delimiter is present in the input
-    let delimiter = '';
-    for (const delim of delimiters) {
-      if (hexadecimal.includes(delim.value)) {
-        delimiter = delim.value;
-        break;
+      modal.addComponents(firstActionRow);
+
+      try {
+          await interaction.showModal(modal);
+      } catch (error) {
+          interaction.reply({ content: 'An error occurred while processing your request.', ephemeral: true });
+          console.error(error);
+          return;
       }
-    }
 
-    let hexValues = [];
+      const filter = (i) => i.customId === `hexadecimal-field-${interaction.user.id}`;
 
-    if (delimiter) {
-      // Split the hexadecimal string by the detected delimiter
-      hexValues = hexadecimal.split(delimiter).map(item => item.trim()).filter(item => item.length > 0);
-    } else {
-      // If no delimiter is found, treat the string as a continuous raw hex string
-      // This assumes the raw string is just a sequence of hex pairs like "48656c6c6f"
-      const hexPairs = hexadecimal.match(/.{2}/g); // Matches every 2 characters (a single byte in hex)
-      if (hexPairs) {
-        hexValues = hexPairs;
-      } else {
-        return interaction.reply("Invalid hexadecimal format.");
-      }
-    }
+      interaction.awaitModalSubmit({ filter, time: 300_000 })
+          .then(async ModalSubmitInteraction => {
+              const hexadecimal = ModalSubmitInteraction.fields.getTextInputValue('hexadecimal-field');
 
-    // Convert hexadecimal values to text
-    let decodedText = hexValues.map(hex => {
-      if (hex.startsWith('0x') || hex.startsWith('\\x')) {
-        hex = hex.slice(2); // Remove '0x' or '\\x' prefix
-      }
-      return String.fromCharCode(parseInt(hex, 16)); // Convert hex to ASCII
-    }).join('');
+              const delimiters = [
+                  { name: 'Space', value: ' ' },
+                  { name: 'Percent', value: '%' },
+                  { name: 'Comma', value: ',' },
+                  { name: 'Semi-colon', value: ';' },
+                  { name: '0x', value: '0x' },
+                  { name: '0x with comma', value: '0x,' },
+                  { name: '\\x', value: '\\x' }
+              ];
 
-    // Send the decoded text as the response
-    return interaction.reply(decodedText);
-  }
+    
+              let delimiter = '';
+              for (const delim of delimiters) {
+                  if (hexadecimal.includes(delim.value)) {
+                      delimiter = delim.value;
+                      break;
+                  }
+              }
+
+              let hexValues = [];
+
+              if (delimiter) {
+                  hexValues = hexadecimal.split(delimiter).map(item => item.trim()).filter(item => item.length > 0);
+              } else {
+                  const hexPairs = hexadecimal.match(/.{2}/g);
+                  if (hexPairs) {
+                      hexValues = hexPairs;
+                  } else {
+                      await ModalSubmitInteraction.reply("Invalid hexadecimal format.");
+                  }
+              }
+
+        
+              let decodedText = hexValues.map(hex => {
+                  if (hex.startsWith('0x') || hex.startsWith('\\x')) {
+                      hex = hex.slice(2); // Remove '0x' or '\\x' prefix
+                  }
+                  return String.fromCharCode(parseInt(hex, 16)); // Convert hex to ASCII
+              }).join('');
+
+              await ModalSubmitInteraction.reply(decodedText);
+
+          })
+  },
 };
